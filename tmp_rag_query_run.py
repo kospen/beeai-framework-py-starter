@@ -1,9 +1,11 @@
 import asyncio
+import json
 import sys
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
 from beeai_framework.adapters.gemini.backend.embedding import GeminiEmbeddingModel
 from tmp_rag_query_planner import plan_query
+from tmp_rag_prompt_wrapper import build_prompt
 
 async def main_async():
     if len(sys.argv) < 2:
@@ -61,6 +63,24 @@ async def main_async():
             print(f"  Chunk Index: {payload.get('chunk_index')}")
             print(f"  Snippet: {snippet}")
             print()
+
+        retrieved_chunks = []
+        for point in results.points:
+            payload = point.payload
+            retrieved_chunks.append(
+                {
+                    "score": point.score,
+                    "source_file": payload.get("source_file"),
+                    "type": payload.get("type"),
+                    "topic": payload.get("topic"),
+                    "chunk_index": payload.get("chunk_index"),
+                    "text": payload.get("text"),
+                }
+            )
+
+        prompt_payload = build_prompt(user_input, retrieved_chunks)
+        print("=== PROMPT PAYLOAD ===")
+        print(json.dumps(prompt_payload, indent=2))
     except Exception as e:
         print(f"Error querying Qdrant: {e}")
 
