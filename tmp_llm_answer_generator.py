@@ -4,6 +4,7 @@ import os
 import sys
 
 from beeai_framework.errors import FrameworkError
+from tmp_rag_guardrails_impl import run_guardrails
 
 
 def build_llm_prompt(prompt_payload: dict) -> str:
@@ -101,7 +102,31 @@ def generate_answer(prompt_payload: dict, real: bool = False) -> str:
     _ = build_llm_prompt(prompt_payload)
     if not real:
         return "LLM ANSWER (stub): this is where the model response will go."
-    return asyncio.run(generate_answer_real(prompt_payload))
+    answer_text = asyncio.run(generate_answer_real(prompt_payload))
+    guardrails_result = run_guardrails(
+        answer_text=answer_text,
+        retrieved_chunks=prompt_payload.get("retrieved_chunks", []),
+        prompt_context_string=prompt_payload.get("context", ""),
+    )
+
+    status = guardrails_result.get("status")
+    reasons = guardrails_result.get("reasons", []) or []
+    reason_lines = [f"{r.get('code')}: {r.get('message')}" for r in reasons]
+
+    if status == "REFUSE":
+        print("REFUSED: answer not supported by retrieval context")
+        if reason_lines:
+            print("\n".join(reason_lines))
+        sys.exit(2)
+
+    if status == "WARN":
+        warning_lines = ["WARNING: guardrails partial coverage"]
+        if reason_lines:
+            warning_lines.extend(reason_lines)
+        warning_lines.append(answer_text)
+        return "\n".join(warning_lines)
+
+    return answer_text
 
 
 if __name__ == "__main__":
