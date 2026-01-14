@@ -21,9 +21,24 @@ def plan_query(user_input: str) -> PlannedQuery:
     Returns:
         PlannedQuery with planning details
     """
+    text = user_input.lower()
+    filters: dict[str, Any] = {}
+
+    if "decision" in text or "confidence" in text:
+        filters["type"] = "RULES"
+        filters["topic"] = "decision_policy"
+    if "severity" in text or "review" in text or "critique" in text:
+        filters["type"] = "RULES"
+        filters["topic"] = "review_policy"
+    if "template" in text:
+        filters["type"] = "TEMPLATE"
+    if "belbin" in text or "orchestra" in text:
+        filters["type"] = "CONCEPT"
+        filters["topic"] = "belbin_orchestra"
+
     return PlannedQuery(
         query_text=user_input,
-        filters={},
+        filters=filters,
         topk=5
     )
 
