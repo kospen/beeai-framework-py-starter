@@ -10,6 +10,7 @@ def run_guardrails(
     prompt_context_string: str,
     enable_v2_semantic_support_check: Optional[bool] = None,
     enable_v2_strict_claim_extraction: Optional[bool] = None,
+    enable_v2_claim_citation_alignment: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Run Guardrails v1 validation and return a GuardrailsResult-shaped dict."""
     # TODO: Orchestrate guardrails steps per the spec and return result.
@@ -26,6 +27,10 @@ def run_guardrails(
         metrics["enable_v2_strict_claim_extraction"] = ENABLE_V2_STRICT_CLAIM_EXTRACTION
     else:
         metrics["enable_v2_strict_claim_extraction"] = enable_v2_strict_claim_extraction
+    if enable_v2_claim_citation_alignment is None:
+        metrics["enable_v2_claim_citation_alignment"] = ENABLE_V2_CLAIM_CITATION_ALIGNMENT
+    else:
+        metrics["enable_v2_claim_citation_alignment"] = enable_v2_claim_citation_alignment
     citations_by_chunk: Dict[str, int] = {}
     total_citations = 0
     for cite_id in citations:
@@ -50,9 +55,16 @@ def run_guardrails(
     status, reasons = _apply_decision_rules(metrics)
     _v2_semantic_support_check(answer_text, retrieved_chunks, metrics, reasons)
     _v2_strict_claim_extraction_check(answer_text, retrieved_chunks, metrics, reasons)
+    _v2_claim_citation_alignment_check(answer_text, retrieved_chunks, metrics, reasons)
     _v2_apply_citation_dedup_penalty(metrics, reasons)
     if status == "PASS" and any(
-        r.get("code") in ("CITATION_DEDUP_DOMINANCE", "SEMANTIC_SUPPORT_WEAK", "UNSUPPORTED_EXPLICIT_CLAIM")
+        r.get("code")
+        in (
+            "CITATION_DEDUP_DOMINANCE",
+            "SEMANTIC_SUPPORT_WEAK",
+            "UNSUPPORTED_EXPLICIT_CLAIM",
+            "CLAIM_CITATION_MISMATCH",
+        )
         for r in reasons
     ):
         status = "WARN"
@@ -405,6 +417,54 @@ def _v2_strict_claim_extraction_check(
         )
 
 
+def _v2_claim_citation_alignment_check(
+    answer_text: str, retrieved_chunks: List[Dict[str, Any]], metrics: Dict[str, Any], reasons: List[Dict[str, Any]]
+) -> None:
+    if not metrics.get("enable_v2_claim_citation_alignment", False):
+        return
+
+    percent_pattern = re.compile(r"\b\d+(?:\.\d+)?%\b")
+    years_pattern = re.compile(r"\b\d+\s+years?\b", re.IGNORECASE)
+    chunk_lookup = _build_chunk_lookup(retrieved_chunks)
+    unsupported: List[str] = []
+
+    for claim in _split_into_claims(answer_text):
+        claim_citations = _extract_citations(claim)
+        if not claim_citations:
+            continue
+        claim_text = re.sub(r"\[C\d+\]", "", claim)
+        numeric_tokens = percent_pattern.findall(claim_text)
+        numeric_tokens.extend(years_pattern.findall(claim_text))
+        if not numeric_tokens:
+            continue
+
+        supported = False
+        for cite_id in claim_citations:
+            chunk = chunk_lookup.get(cite_id)
+            if not chunk:
+                continue
+            chunk_text = str(chunk.get("text", ""))
+            for token in numeric_tokens:
+                pattern = re.compile(rf"\b{re.escape(token)}\b", re.IGNORECASE)
+                if pattern.search(chunk_text):
+                    supported = True
+                    break
+            if supported:
+                break
+
+        if not supported:
+            unsupported.extend(numeric_tokens)
+
+    if unsupported:
+        reasons.append(
+            {
+                "code": "CLAIM_CITATION_MISMATCH",
+                "message": "Cited chunks do not support explicit numeric claims.",
+                "details": {"unsupported": unsupported},
+            }
+        )
+
+
 def _build_result(status: str, reasons: List[Dict[str, Any]], metrics: Dict[str, Any]) -> Dict[str, Any]:
     # TODO: Build GuardrailsResult with reasons and metadata.
     return {
@@ -436,6 +496,7 @@ V2_DEDUP_MIN_TOTAL_CITATIONS = 3
 ENABLE_V2_SEMANTIC_SUPPORT_CHECK = False
 ENABLE_V2_CITATION_DEDUP_PENALTY = False
 ENABLE_V2_STRICT_CLAIM_EXTRACTION = False
+ENABLE_V2_CLAIM_CITATION_ALIGNMENT = False
 
 
 def _build_chunk_lookup(retrieved_chunks: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
