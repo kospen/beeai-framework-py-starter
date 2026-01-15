@@ -170,6 +170,7 @@ def _apply_decision_rules(metrics: Dict[str, Any]) -> Tuple[str, List[Dict[str, 
     reasons: List[Dict[str, Any]] = []
 
     if REFUSE_ON_NO_CITATIONS and citations_count == 0:
+        # REFUSE when no citations are found; covered by tmp_guardrails_smoketest.py.
         reasons.append(
             {
                 "code": "NO_CITATIONS",
@@ -180,6 +181,7 @@ def _apply_decision_rules(metrics: Dict[str, Any]) -> Tuple[str, List[Dict[str, 
         return "REFUSE", reasons
 
     if mapping_failed:
+        # REFUSE when claim-to-evidence mapping fails; covered by tmp_guardrails_smoketest.py.
         reasons.append(
             {
                 "code": "MAPPING_FAILED",
@@ -190,6 +192,7 @@ def _apply_decision_rules(metrics: Dict[str, Any]) -> Tuple[str, List[Dict[str, 
         return "REFUSE", reasons
 
     if uncovered_claims_count > MAX_UNCOVERED_CLAIMS or uncovered_ratio > MAX_UNCOVERED_RATIO:
+        # REFUSE when too many claims are unsupported; covered by tmp_guardrails_smoketest.py.
         reasons.append(
             {
                 "code": "UNSUPPORTED_CLAIMS",
@@ -200,6 +203,7 @@ def _apply_decision_rules(metrics: Dict[str, Any]) -> Tuple[str, List[Dict[str, 
         return "REFUSE", reasons
 
     if citation_density < MIN_CITATION_DENSITY:
+        # WARN when citation density is below threshold; covered by tmp_guardrails_smoketest.py.
         reasons.append(
             {
                 "code": "LOW_CITATION_DENSITY",
@@ -210,6 +214,7 @@ def _apply_decision_rules(metrics: Dict[str, Any]) -> Tuple[str, List[Dict[str, 
         return "WARN", reasons
 
     if uncovered_claims_count > 0:
+        # WARN when some claims lack support; covered by tmp_guardrails_smoketest.py.
         reasons.append(
             {
                 "code": "PARTIAL_COVERAGE",
@@ -219,6 +224,7 @@ def _apply_decision_rules(metrics: Dict[str, Any]) -> Tuple[str, List[Dict[str, 
         )
         return "WARN", reasons
 
+    # PASS when no refusal or warning conditions apply; covered by tmp_guardrails_smoketest.py.
     return "PASS", reasons
 
 
