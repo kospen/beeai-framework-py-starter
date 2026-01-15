@@ -1,4 +1,4 @@
-# Guardrails v2 – Roadmap
+﻿# Guardrails v2 – Roadmap
 
 ## Goals
 - Reduce false PASS when citations are duplicated but semantic support is weak
@@ -9,6 +9,8 @@
 - Semantic support check: require chunk text similarity / keyword overlap per claim
   DONE (Phase 3): flag-based, deterministic offline heuristic; PASS → WARN only
 - Citation dedup penalty: if >X% citations point to same chunk, downgrade PASS->WARN
+- Claim–citation alignment: explicit numeric claims must match cited chunks
+  DONE (Phase 5): flag-based, deterministic offline heuristic; PASS → WARN only; reason: CLAIM_CITATION_MISMATCH
 - Stricter uncovered-claim accounting: sentence-level claim extraction improvements
 
 ## Breaking changes (explicitly out of scope for v2)
