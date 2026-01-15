@@ -11,6 +11,15 @@ def run_guardrails(answer_text: str, retrieved_chunks: List[Dict[str, Any]], pro
     claims = _filter_non_claims(claims)
     mapped = _map_claims_to_chunks(claims, retrieved_chunks, citations)
     metrics = _compute_metrics(mapped, citations)
+    citations_by_chunk: Dict[str, int] = {}
+    total_citations = 0
+    for cite_id in citations:
+        count = answer_text.count(f"[{cite_id}]")
+        if count:
+            citations_by_chunk[cite_id] = count
+            total_citations += count
+    metrics["citations_by_chunk"] = citations_by_chunk
+    metrics["citations_count_total"] = total_citations
 
     mapping_failed = False
     if claims:
@@ -26,6 +35,8 @@ def run_guardrails(answer_text: str, retrieved_chunks: List[Dict[str, Any]], pro
     status, reasons = _apply_decision_rules(metrics)
     _v2_semantic_support_check(answer_text, retrieved_chunks, metrics, reasons)
     _v2_apply_citation_dedup_penalty(metrics, reasons)
+    if status == "PASS" and any(r.get("code") == "CITATION_DEDUP_DOMINANCE" for r in reasons):
+        status = "WARN"
     return _build_result(status, reasons, metrics)
 
 
@@ -238,6 +249,28 @@ def _v2_apply_citation_dedup_penalty(metrics: Dict[str, Any], reasons: List[Dict
     if not ENABLE_V2_CITATION_DEDUP_PENALTY:
         return
 
+    citations_by_chunk = metrics.get("citations_by_chunk")
+    if not isinstance(citations_by_chunk, dict) or not citations_by_chunk:
+        return
+
+    citations_count = metrics.get("citations_count_total", metrics.get("citations_count", 0))
+    if citations_count < V2_DEDUP_MIN_TOTAL_CITATIONS:
+        return
+
+    max_share = max(citations_by_chunk.values()) / max(1, citations_count)
+    if max_share > V2_DEDUP_MAX_SINGLE_CHUNK_CITATION_SHARE:
+        reasons.append(
+            {
+                "code": "CITATION_DEDUP_DOMINANCE",
+                "message": "Citations are overly concentrated on a single chunk.",
+                "details": {
+                    "max_share": round(max_share, 2),
+                    "threshold": V2_DEDUP_MAX_SINGLE_CHUNK_CITATION_SHARE,
+                    "citations_count": citations_count,
+                },
+            }
+        )
+
 
 def _v2_semantic_support_check(
     answer_text: str, retrieved_chunks: List[Dict[str, Any]], metrics: Dict[str, Any], reasons: List[Dict[str, Any]]
@@ -272,6 +305,10 @@ MIN_CITATION_DENSITY = 0.20
 MAX_UNCOVERED_CLAIMS = 1
 MAX_UNCOVERED_RATIO = 0.20
 MIN_SIMILARITY_FOR_MAPPING = 0.20
+
+# Guardrails v2 thresholds (Phase 2): used only when explicitly enabled.
+V2_DEDUP_MAX_SINGLE_CHUNK_CITATION_SHARE = 0.80
+V2_DEDUP_MIN_TOTAL_CITATIONS = 3
 
 # Guardrails v2 flags (Phase 1): disabled by default; used only when explicitly enabled.
 ENABLE_V2_SEMANTIC_SUPPORT_CHECK = False
