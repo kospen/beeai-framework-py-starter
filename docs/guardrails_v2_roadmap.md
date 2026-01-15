@@ -11,6 +11,8 @@
 - Citation dedup penalty: if >X% citations point to same chunk, downgrade PASS->WARN
 - Claim–citation alignment: explicit numeric claims must match cited chunks
   DONE (Phase 5): flag-based, deterministic offline heuristic; PASS → WARN only; reason: CLAIM_CITATION_MISMATCH
+- Mixed supported + unsupported claims handling
+  DONE (Phase 6): deterministic offline handling; WARN when any unsupported claim exists
 - Stricter uncovered-claim accounting: sentence-level claim extraction improvements
 
 ## Breaking changes (explicitly out of scope for v2)
