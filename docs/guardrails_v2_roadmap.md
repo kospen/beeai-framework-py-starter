@@ -7,6 +7,7 @@
 
 ## Non-breaking upgrades (default off via flags)
 - Semantic support check: require chunk text similarity / keyword overlap per claim
+  DONE (Phase 3): flag-based, deterministic offline heuristic; PASS → WARN only
 - Citation dedup penalty: if >X% citations point to same chunk, downgrade PASS->WARN
 - Stricter uncovered-claim accounting: sentence-level claim extraction improvements
 
