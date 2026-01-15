@@ -24,6 +24,8 @@ def run_guardrails(answer_text: str, retrieved_chunks: List[Dict[str, Any]], pro
 
     metrics["mapping_failed"] = mapping_failed
     status, reasons = _apply_decision_rules(metrics)
+    _v2_semantic_support_check(answer_text, retrieved_chunks, metrics, reasons)
+    _v2_apply_citation_dedup_penalty(metrics, reasons)
     return _build_result(status, reasons, metrics)
 
 
@@ -228,6 +230,26 @@ def _apply_decision_rules(metrics: Dict[str, Any]) -> Tuple[str, List[Dict[str, 
     return "PASS", reasons
 
 
+def _v2_apply_citation_dedup_penalty(metrics: Dict[str, Any], reasons: List[Dict[str, Any]]) -> None:
+    """
+    Phase 1: placeholder. If ENABLE_V2_CITATION_DEDUP_PENALTY is False -> return.
+    If True -> currently do nothing (TODO in Phase 2).
+    """
+    if not ENABLE_V2_CITATION_DEDUP_PENALTY:
+        return
+
+
+def _v2_semantic_support_check(
+    answer_text: str, retrieved_chunks: List[Dict[str, Any]], metrics: Dict[str, Any], reasons: List[Dict[str, Any]]
+) -> None:
+    """
+    Phase 1: placeholder. If ENABLE_V2_SEMANTIC_SUPPORT_CHECK is False -> return.
+    If True -> currently do nothing (TODO in Phase 2).
+    """
+    if not ENABLE_V2_SEMANTIC_SUPPORT_CHECK:
+        return
+
+
 def _build_result(status: str, reasons: List[Dict[str, Any]], metrics: Dict[str, Any]) -> Dict[str, Any]:
     # TODO: Build GuardrailsResult with reasons and metadata.
     return {
@@ -250,6 +272,11 @@ MIN_CITATION_DENSITY = 0.20
 MAX_UNCOVERED_CLAIMS = 1
 MAX_UNCOVERED_RATIO = 0.20
 MIN_SIMILARITY_FOR_MAPPING = 0.20
+
+# Guardrails v2 flags (Phase 1): disabled by default; used only when explicitly enabled.
+ENABLE_V2_SEMANTIC_SUPPORT_CHECK = False
+ENABLE_V2_CITATION_DEDUP_PENALTY = False
+ENABLE_V2_STRICT_CLAIM_EXTRACTION = False
 
 
 def _build_chunk_lookup(retrieved_chunks: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
