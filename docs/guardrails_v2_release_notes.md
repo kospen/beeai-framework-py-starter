@@ -26,3 +26,12 @@
 
 ## Known limitations
 - Duplicated citations may PASS even with weak semantic support when v2 flags are OFF
+
+## Guardrails v2.1 — Runtime Integration
+- ENABLE_V2_SEMANTIC_SUPPORT_CHECK
+- ENABLE_V2_STRICT_CLAIM_EXTRACTION
+- ENABLE_V2_CLAIM_CITATION_ALIGNMENT
+- All flags are OFF by default
+- Example:
+  ENABLE_V2_SEMANTIC_SUPPORT_CHECK=true python tmp_llm_answer_generator.py --real
+- WARN-only, never escalates to REFUSE

@@ -7,6 +7,11 @@ from beeai_framework.errors import FrameworkError
 from tmp_rag_guardrails_impl import run_guardrails
 
 
+def _env_truthy(name: str) -> bool:
+    value = os.getenv(name, "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def build_llm_prompt(prompt_payload: dict) -> str:
     system_instruction = prompt_payload.get("system_instruction", "")
     instructions = prompt_payload.get("instructions", "")
@@ -103,10 +108,14 @@ def generate_answer(prompt_payload: dict, real: bool = False) -> str:
     if not real:
         return "LLM ANSWER (stub): this is where the model response will go."
     answer_text = asyncio.run(generate_answer_real(prompt_payload))
+    # Guardrails v2 flags are opt-in and default OFF.
     guardrails_result = run_guardrails(
         answer_text=answer_text,
         retrieved_chunks=prompt_payload.get("retrieved_chunks", []),
         prompt_context_string=prompt_payload.get("context", ""),
+        enable_v2_semantic_support_check=_env_truthy("ENABLE_V2_SEMANTIC_SUPPORT_CHECK"),
+        enable_v2_strict_claim_extraction=_env_truthy("ENABLE_V2_STRICT_CLAIM_EXTRACTION"),
+        enable_v2_claim_citation_alignment=_env_truthy("ENABLE_V2_CLAIM_CITATION_ALIGNMENT"),
     )
 
     status = guardrails_result.get("status")
