@@ -9,6 +9,7 @@ def run_guardrails(
     retrieved_chunks: List[Dict[str, Any]],
     prompt_context_string: str,
     enable_v2_semantic_support_check: Optional[bool] = None,
+    enable_v2_strict_claim_extraction: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Run Guardrails v1 validation and return a GuardrailsResult-shaped dict."""
     # TODO: Orchestrate guardrails steps per the spec and return result.
@@ -21,6 +22,10 @@ def run_guardrails(
         metrics["enable_v2_semantic_support_check"] = ENABLE_V2_SEMANTIC_SUPPORT_CHECK
     else:
         metrics["enable_v2_semantic_support_check"] = enable_v2_semantic_support_check
+    if enable_v2_strict_claim_extraction is None:
+        metrics["enable_v2_strict_claim_extraction"] = ENABLE_V2_STRICT_CLAIM_EXTRACTION
+    else:
+        metrics["enable_v2_strict_claim_extraction"] = enable_v2_strict_claim_extraction
     citations_by_chunk: Dict[str, int] = {}
     total_citations = 0
     for cite_id in citations:
@@ -44,9 +49,11 @@ def run_guardrails(
     metrics["mapping_failed"] = mapping_failed
     status, reasons = _apply_decision_rules(metrics)
     _v2_semantic_support_check(answer_text, retrieved_chunks, metrics, reasons)
+    _v2_strict_claim_extraction_check(answer_text, retrieved_chunks, metrics, reasons)
     _v2_apply_citation_dedup_penalty(metrics, reasons)
     if status == "PASS" and any(
-        r.get("code") in ("CITATION_DEDUP_DOMINANCE", "SEMANTIC_SUPPORT_WEAK") for r in reasons
+        r.get("code") in ("CITATION_DEDUP_DOMINANCE", "SEMANTIC_SUPPORT_WEAK", "UNSUPPORTED_EXPLICIT_CLAIM")
+        for r in reasons
     ):
         status = "WARN"
     return _build_result(status, reasons, metrics)
@@ -349,6 +356,50 @@ def _v2_semantic_support_check(
             {
                 "code": "SEMANTIC_SUPPORT_WEAK",
                 "message": "Answer contains claims not supported by retrieved chunks.",
+                "details": {"unsupported": unsupported},
+            }
+        )
+
+
+def _v2_strict_claim_extraction_check(
+    answer_text: str, retrieved_chunks: List[Dict[str, Any]], metrics: Dict[str, Any], reasons: List[Dict[str, Any]]
+) -> None:
+    if not metrics.get("enable_v2_strict_claim_extraction", False):
+        return
+
+    text_no_citations = re.sub(r"\[C\d+\]", "", answer_text)
+    percent_pattern = re.compile(r"\b\d+(?:\.\d+)?%\b")
+    years_pattern = re.compile(r"\b\d+\s+years?\b", re.IGNORECASE)
+    explicit_claims: List[str] = []
+
+    explicit_claims.extend(percent_pattern.findall(text_no_citations))
+    explicit_claims.extend(years_pattern.findall(text_no_citations))
+
+    absolutes = ["always", "guarantees", "guarantee", "all", "never"]
+    for word in absolutes:
+        if re.search(rf"\b{re.escape(word)}\b", text_no_citations, flags=re.IGNORECASE):
+            explicit_claims.append(word)
+
+    if not explicit_claims:
+        return
+
+    chunk_texts = [str(chunk.get("text", "")) for chunk in retrieved_chunks]
+    unsupported: List[str] = []
+    for claim in explicit_claims:
+        supported = False
+        pattern = re.compile(rf"\b{re.escape(claim)}\b", flags=re.IGNORECASE)
+        for chunk_text in chunk_texts:
+            if pattern.search(chunk_text):
+                supported = True
+                break
+        if not supported:
+            unsupported.append(claim)
+
+    if unsupported:
+        reasons.append(
+            {
+                "code": "UNSUPPORTED_EXPLICIT_CLAIM",
+                "message": "Explicit claims are not supported by retrieved chunks.",
                 "details": {"unsupported": unsupported},
             }
         )
