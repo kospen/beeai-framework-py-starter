@@ -1,9 +1,15 @@
 # SPEC SOURCE OF TRUTH: docs/guardrails_v1_spec.md (implementation MUST follow this spec 1:1)
 
+import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 
-def run_guardrails(answer_text: str, retrieved_chunks: List[Dict[str, Any]], prompt_context_string: str) -> Dict[str, Any]:
+def run_guardrails(
+    answer_text: str,
+    retrieved_chunks: List[Dict[str, Any]],
+    prompt_context_string: str,
+    enable_v2_semantic_support_check: Optional[bool] = None,
+) -> Dict[str, Any]:
     """Run Guardrails v1 validation and return a GuardrailsResult-shaped dict."""
     # TODO: Orchestrate guardrails steps per the spec and return result.
     citations = _extract_citations(answer_text)
@@ -11,6 +17,10 @@ def run_guardrails(answer_text: str, retrieved_chunks: List[Dict[str, Any]], pro
     claims = _filter_non_claims(claims)
     mapped = _map_claims_to_chunks(claims, retrieved_chunks, citations)
     metrics = _compute_metrics(mapped, citations)
+    if enable_v2_semantic_support_check is None:
+        metrics["enable_v2_semantic_support_check"] = ENABLE_V2_SEMANTIC_SUPPORT_CHECK
+    else:
+        metrics["enable_v2_semantic_support_check"] = enable_v2_semantic_support_check
     citations_by_chunk: Dict[str, int] = {}
     total_citations = 0
     for cite_id in citations:
@@ -35,7 +45,9 @@ def run_guardrails(answer_text: str, retrieved_chunks: List[Dict[str, Any]], pro
     status, reasons = _apply_decision_rules(metrics)
     _v2_semantic_support_check(answer_text, retrieved_chunks, metrics, reasons)
     _v2_apply_citation_dedup_penalty(metrics, reasons)
-    if status == "PASS" and any(r.get("code") == "CITATION_DEDUP_DOMINANCE" for r in reasons):
+    if status == "PASS" and any(
+        r.get("code") in ("CITATION_DEDUP_DOMINANCE", "SEMANTIC_SUPPORT_WEAK") for r in reasons
+    ):
         status = "WARN"
     return _build_result(status, reasons, metrics)
 
@@ -279,8 +291,67 @@ def _v2_semantic_support_check(
     Phase 1: placeholder. If ENABLE_V2_SEMANTIC_SUPPORT_CHECK is False -> return.
     If True -> currently do nothing (TODO in Phase 2).
     """
-    if not ENABLE_V2_SEMANTIC_SUPPORT_CHECK:
+    if not metrics.get("enable_v2_semantic_support_check", False):
         return
+
+    percent_pattern = re.compile(r"\b\d+(?:\.\d+)?%\b")
+    percents = percent_pattern.findall(answer_text)
+    chunk_text = " ".join(str(chunk.get("text", "")) for chunk in retrieved_chunks)
+    unsupported: List[str] = []
+    if percents:
+        for pct in percents:
+            if pct not in chunk_text:
+                unsupported.append(pct)
+    else:
+        chunk_tokens: Set[str] = set()
+        for chunk in retrieved_chunks:
+            chunk_tokens |= _tokenize(str(chunk.get("text", "")))
+        answer_tokens = _tokenize(answer_text)
+        stopwords = {
+            "the",
+            "and",
+            "or",
+            "is",
+            "are",
+            "was",
+            "were",
+            "a",
+            "an",
+            "to",
+            "of",
+            "in",
+            "on",
+            "for",
+            "with",
+            "as",
+            "at",
+            "by",
+            "from",
+            "that",
+            "this",
+            "it",
+            "its",
+            "be",
+            "not",
+            "only",
+        }
+        for token in answer_tokens:
+            if token in stopwords:
+                continue
+            if token.startswith("c") and token[1:].isdigit():
+                continue
+            if token not in chunk_tokens:
+                unsupported.append(token)
+                break
+
+    if unsupported:
+        reasons.append(
+            {
+                "code": "SEMANTIC_SUPPORT_WEAK",
+                "message": "Answer contains claims not supported by retrieved chunks.",
+                "details": {"unsupported": unsupported},
+            }
+        )
 
 
 def _build_result(status: str, reasons: List[Dict[str, Any]], metrics: Dict[str, Any]) -> Dict[str, Any]:
